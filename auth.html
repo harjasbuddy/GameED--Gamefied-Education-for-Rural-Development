@@ -560,33 +560,38 @@
             }
         ];
 
-        // Initialize storage with all accounts
-        function initializeAccounts() {
+        // Initialize storage with demo accounts only when no users exist yet
+        async function initializeAccounts() {
             const allUsers = [...ADMIN_ACCOUNTS, ...TEACHER_ACCOUNTS, ...DEMO_ACCOUNTS];
 
-            // Clear ALL existing users to start fresh and avoid conflicts
-            localStorage.removeItem('gameEdUsers');
+            const seededResponse = await fetch('/api/users/seed', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ users: allUsers })
+            }).catch(() => null);
 
-            let existingUsers = [];
+            if (seededResponse && seededResponse.ok) {
+                const payload = await seededResponse.json();
+                localStorage.setItem('gameEdUsers', JSON.stringify(payload.users || []));
+                console.log('Users available:', (payload.users || []).length);
+                return;
+            }
 
-            // Add all demo accounts fresh
-            allUsers.forEach(newUser => {
-                existingUsers.push({
+            const existingUsers = JSON.parse(localStorage.getItem('gameEdUsers')) || [];
+            if (!existingUsers.length) {
+                const seeded = allUsers.map(newUser => ({
                     ...newUser,
                     id: Date.now() + Math.random(),
                     totalXP: newUser.xp || (newUser.role.includes('teacher') ? 1000 : 100),
                     badges: ['new-learner'],
                     achievements: [],
-                    region: "rural",
-                    age: newUser.role === 'student' ? "13-16" : "20+",
+                    region: 'rural',
+                    age: newUser.role === 'student' ? '13-16' : '20+',
                     joined: new Date().toISOString(),
                     lastLogin: null
-                });
-            });
-
-            localStorage.setItem('gameEdUsers', JSON.stringify(existingUsers));
-            console.log('Accounts initialized:', existingUsers.length, 'total users');
-            console.log('Teachers:', existingUsers.filter(u => u.role.includes('teacher')).map(u => ({ email: u.email, role: u.role })));
+                }));
+                localStorage.setItem('gameEdUsers', JSON.stringify(seeded));
+            }
         }
 
         // Check URL parameters for mode
@@ -618,9 +623,9 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', function () {
+        document.addEventListener('DOMContentLoaded', async function () {
             // Initialize accounts
-            initializeAccounts();
+            await initializeAccounts();
 
             // Switch form based on URL parameter
             switchForm(mode);
@@ -777,55 +782,45 @@
                     return;
                 }
 
-                // Simulate API delay
-                setTimeout(() => {
-                    // Get all users
-                    const allUsers = JSON.parse(localStorage.getItem('gameEdUsers')) || [];
-                    console.log('Total users in system:', allUsers.length);
-                    console.log('Looking for user with:', email);
-
-                    // Find user
-                    const user = allUsers.find(u =>
-                        (u.email === email || u.username === email) &&
-                        u.password === password
-                    );
-
-                    if (!user) {
-                        console.log('User not found or password incorrect');
-                        showNotification('Invalid email/username or password', 'error');
-                        resetLoginButton();
-                        return;
-                    }
-
-                    console.log('User found:', user.email, 'Role:', user.role, 'Full user object:', user);
-
-                    // Prepare user data for storage (remove password)
-                    const { password: _, ...userData } = user;
-                    const userToStore = {
-                        ...userData,
-                        lastLogin: new Date().toISOString(),
-                        rememberMe: rememberMe
-                    };
-
-                    // Save user data
-                    const storage = rememberMe ? localStorage : sessionStorage;
-                    storage.setItem('gameEdUser', JSON.stringify(userToStore));
-
-                    console.log('User saved to storage, role:', userToStore.role);
-
-                    // Update header
-                    document.dispatchEvent(new CustomEvent('authChange', {
-                        detail: {
-                            isLoggedIn: true,
-                            username: userData.username,
-                            role: userData.role
+                // API login
+                fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                })
+                    .then(async (response) => {
+                        const payload = await response.json();
+                        if (!response.ok || !payload.user) {
+                            throw new Error(payload.error || 'Login failed');
                         }
-                    }));
 
-                    showNotification(`Welcome back, ${userData.name}! Redirecting...`, 'success');
+                        const userData = payload.user;
+                        const userToStore = {
+                            ...userData,
+                            lastLogin: new Date().toISOString(),
+                            rememberMe: rememberMe
+                        };
 
-                    // CRITICAL FIX: Redirect logic that matches admin.html
-                    setTimeout(() => {
+                        const allUsers = JSON.parse(localStorage.getItem('gameEdUsers')) || [];
+                        const idx = allUsers.findIndex(u => String(u.id) === String(userData.id));
+                        if (idx !== -1) allUsers[idx] = { ...allUsers[idx], ...userData };
+                        else allUsers.push(userData);
+                        localStorage.setItem('gameEdUsers', JSON.stringify(allUsers));
+
+                        const storage = rememberMe ? localStorage : sessionStorage;
+                        storage.setItem('gameEdUser', JSON.stringify(userToStore));
+
+                        document.dispatchEvent(new CustomEvent('authChange', {
+                            detail: {
+                                isLoggedIn: true,
+                                username: userData.username,
+                                role: userData.role
+                            }
+                        }));
+
+                        showNotification(`Welcome back, ${userData.name}! Redirecting...`, 'success');
+
+                        setTimeout(() => {
                         // Check role exactly like in admin.html
                         if (userData.role === 'admin' || userData.role === 'teacher_admin') {
                             console.log('User has admin/teacher_admin role, checking where to redirect...');
@@ -851,14 +846,19 @@
                             console.log('Unknown role, defaulting to dashboard.html');
                             window.location.href = 'dashboard.html';
                         }
-                    }, 1500);
+                        }, 1500);
+                    })
+                    .catch((err) => {
+                        console.log('Login failed', err);
+                        showNotification(err.message || 'Invalid email/username or password', 'error');
+                        resetLoginButton();
+                    });
 
-                    function resetLoginButton() {
-                        submitText.textContent = 'Continue Learning Journey';
-                        spinner.classList.add('hidden');
-                        submitBtn.disabled = false;
-                    }
-                }, 1000);
+                function resetLoginButton() {
+                    submitText.textContent = 'Continue Learning Journey';
+                    spinner.classList.add('hidden');
+                    submitBtn.disabled = false;
+                }
             });
 
             // Signup form submission
@@ -904,102 +904,60 @@
                 spinner.classList.remove('hidden');
                 submitBtn.disabled = true;
 
-                // Simulate API call
-                setTimeout(() => {
-                    // Get existing users
-                    const existingUsers = JSON.parse(localStorage.getItem('gameEdUsers')) || [];
-
-                    // Check if user exists
-                    if (existingUsers.some(u => u.email === email)) {
-                        showNotification('Email already registered', 'error');
-                        resetSignupButton();
-                        return;
-                    }
-
-                    if (existingUsers.some(u => u.username === username)) {
-                        showNotification('Username already taken', 'error');
-                        resetSignupButton();
-                        return;
-                    }
-
-                    // Determine the role for storage
-                    let storedRole = role;
-                    if (role === 'teacher') {
-                        storedRole = 'teacher_admin'; // Use teacher_admin for consistency
-                    }
-
-                    // Create new user
-                    const newUser = {
-                        id: Date.now(),
+                fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
                         name,
                         email,
                         username,
-                        password, // Note: In production, this should be hashed
+                        password,
                         region,
                         age,
-                        role: storedRole,
-                        xp: role === 'teacher' ? 1000 : 100,
-                        totalXP: role === 'teacher' ? 1000 : 100,
-                        level: 1,
-                        badges: ['new-learner'],
-                        achievements: [],
-                        progress: {
-                            math: 0,
-                            science: 0,
-                            agriculture: 0,
-                            language: 0
-                        },
-                        joined: new Date().toISOString(),
-                        lastLogin: null
-                    };
-
-                    // Add teacher-specific data if applicable
-                    if (role === 'teacher') {
-                        newUser.subject = 'General';
-                        newUser.grade = '6-8';
-                        newUser.school = 'Local School';
-                        newUser.permissions = ['view_progress', 'create_content'];
-                    }
-
-                    // Save user
-                    existingUsers.push(newUser);
-                    localStorage.setItem('gameEdUsers', JSON.stringify(existingUsers));
-
-                    // Auto login
-                    const { password: _, ...userData } = newUser;
-                    const storage = rememberMe ? localStorage : sessionStorage;
-                    storage.setItem('gameEdUser', JSON.stringify(userData));
-
-                    console.log('New user created with role:', userData.role);
-
-                    // Show success
-                    showNotification(`Welcome to GameEd, ${name}!`, 'success');
-
-                    // Update header
-                    document.dispatchEvent(new CustomEvent('authChange', {
-                        detail: {
-                            isLoggedIn: true,
-                            username: userData.username,
-                            role: userData.role
+                        role
+                    })
+                })
+                    .then(async (response) => {
+                        const payload = await response.json();
+                        if (!response.ok || !payload.user) {
+                            throw new Error(payload.error || 'Signup failed');
                         }
-                    }));
 
-                    // Redirect based on role
-                    setTimeout(() => {
-                        console.log('Redirecting new user to:', userData.role);
-                        if (userData.role === 'teacher_admin') {
-                            window.location.href = 'teachers.html';
-                        } else {
-                            window.location.href = 'dashboard.html';
-                        }
-                    }, 1500);
+                        const userData = payload.user;
+                        const existingUsers = JSON.parse(localStorage.getItem('gameEdUsers')) || [];
+                        existingUsers.push(userData);
+                        localStorage.setItem('gameEdUsers', JSON.stringify(existingUsers));
 
-                    function resetSignupButton() {
-                        submitText.textContent = 'Start Learning Journey';
-                        spinner.classList.add('hidden');
-                        submitBtn.disabled = false;
-                    }
-                }, 1000);
+                        const storage = rememberMe ? localStorage : sessionStorage;
+                        storage.setItem('gameEdUser', JSON.stringify(userData));
+
+                        showNotification(`Welcome to GameEd, ${name}!`, 'success');
+                        document.dispatchEvent(new CustomEvent('authChange', {
+                            detail: {
+                                isLoggedIn: true,
+                                username: userData.username,
+                                role: userData.role
+                            }
+                        }));
+
+                        setTimeout(() => {
+                            if (userData.role === 'teacher_admin') {
+                                window.location.href = 'teachers.html';
+                            } else {
+                                window.location.href = 'dashboard.html';
+                            }
+                        }, 1500);
+                    })
+                    .catch((err) => {
+                        showNotification(err.message || 'Unable to create account', 'error');
+                        resetSignupButton();
+                    });
+
+                function resetSignupButton() {
+                    submitText.textContent = 'Start Learning Journey';
+                    spinner.classList.add('hidden');
+                    submitBtn.disabled = false;
+                }
             });
 
             // Forgot password modal functions
