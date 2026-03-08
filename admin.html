@@ -850,6 +850,7 @@
     </div>
 
     <script src="components/header.js"></script>
+    <script src="content-store.js"></script>
     <script>
         // ===== GLOBAL VARIABLES =====
         let allUsers = [];
@@ -865,7 +866,7 @@
             feather.replace();
             loadAllData();
             setupCharts();
-            setInterval(updateRealTimeStats, 30000); // Update every 30 seconds
+            setInterval(updateRealTimeStats, 5000); // Update every 5 seconds
         });
 
         // ===== PHASE 1: REAL-TIME ANALYTICS =====
@@ -880,6 +881,7 @@
         }
 
         function updateRealTimeStats() {
+            allUsers = JSON.parse(localStorage.getItem('gameEdUsers')) || [];
             // Total Users
             document.getElementById('totalUsers').textContent = allUsers.length;
             
@@ -1577,7 +1579,7 @@
             }
             
             // In real app, save to localStorage/API
-            alert(`Game "${name}" would be added to the system.`);
+            const newQuiz = { id: `admin-quiz-${Date.now()}`, title: name, subject: category || 'General', class: 'All', description: description || 'Created by admin', duration: 10, questions: 5, xp: Number(xp)||100, difficulty: 'admin', icon: '🎯', color1: '#f59e0b', color2: '#d97706', published: true, trophyId: '', mp3Url: '', questionsList:[{question:'Admin created question?',options:['A','B','C','D'],correct:0,explanation:'Set answer key.'}] }; GameEdContentStore.addQuiz(newQuiz); alert(`Quiz "${name}" added and published.`);
             closeModal('addGameModal');
             
             // Clear form
@@ -1590,12 +1592,12 @@
         }
 
         function editGame(gameName) {
-            alert(`Edit game: ${gameName}\n\nIn a full implementation, this would open an edit form.`);
+            const quizzes = GameEdContentStore.read().quizzes || []; const q = quizzes.find(x => x.title === gameName) || quizzes[0]; if (!q) { alert('No quiz available'); return; } GameEdContentStore.toggleQuizPublished(q.id); alert(`Toggled publish state for ${q.title}`);
         }
 
         function toggleGameStatus(gameName) {
             if (confirm(`Toggle active status for "${gameName}"?`)) {
-                alert(`Game status toggled for "${gameName}"`);
+                const quizzes2 = GameEdContentStore.read().quizzes || []; const q2 = quizzes2.find(x => x.title === gameName) || quizzes2[0]; if (!q2) { alert('No quiz available'); return; } GameEdContentStore.removeQuiz(q2.id); alert(`Removed quiz ${q2.title}`);
                 loadGamesList();
             }
         }
@@ -1721,7 +1723,7 @@
         }
 
         function viewErrorLogs() {
-            alert('Error logs would be displayed here.\n\nIn a full implementation, this would show system errors and warnings.');
+            assignTrophyImage();
         }
 
         // ===== EXISTING FUNCTIONS (Updated) =====
@@ -1903,6 +1905,24 @@
             } else {
                 alert('Password must be at least 6 characters.');
             }
+        }
+
+        function assignTrophyImage() {
+            const state = GameEdContentStore.read();
+            const firstQuiz = state.quizzes?.[0];
+            if (!firstQuiz) {
+                alert('No quizzes available.');
+                return;
+            }
+            const trophy = {
+                id: `trophy-${Date.now()}`,
+                name: `${firstQuiz.title} Trophy`,
+                imageUrl: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=200'
+            };
+            GameEdContentStore.upsertTrophy(trophy);
+            firstQuiz.trophyId = trophy.id;
+            GameEdContentStore.write(state);
+            alert('Trophy with image created and attached to a quiz.');
         }
 
         function exportAllData() {

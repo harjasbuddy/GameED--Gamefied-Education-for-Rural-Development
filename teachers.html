@@ -665,18 +665,18 @@
                     <label class="block text-sm text-accent mb-2">Quiz Topic</label>
                     <input type="text"
                         class="w-full px-4 py-2 glass-card border border-secondary/30 rounded-lg text-white"
-                        placeholder="e.g., Fractions, Photosynthesis">
+                        id="quickQuizTopic" placeholder="e.g., Fractions, Photosynthesis">
                 </div>
 
                 <div>
                     <label class="block text-sm text-accent mb-2">Number of Questions</label>
-                    <input type="number" value="5" min="1" max="10"
+                    <input id="quickQuizCount" type="number" value="5" min="1" max="10"
                         class="w-full px-4 py-2 glass-card border border-secondary/30 rounded-lg text-white">
                 </div>
 
                 <div>
                     <label class="block text-sm text-accent mb-2">Question Type</label>
-                    <select class="w-full px-4 py-2 glass-card border border-secondary/30 rounded-lg text-white">
+                    <select id="quickQuizType" class="w-full px-4 py-2 glass-card border border-secondary/30 rounded-lg text-white">
                         <option value="multiple">Multiple Choice</option>
                         <option value="truefalse">True/False</option>
                         <option value="short">Short Answer</option>
@@ -812,6 +812,7 @@
     </div>
 
     <script src="components/header.js"></script>
+    <script src="content-store.js"></script>
     <script>
         // ===== GLOBAL VARIABLES =====
         let teacherData = {
@@ -1039,15 +1040,75 @@
         }
 
         function createQuiz() {
-            alert('Quick quiz generated!\n\n5 multiple-choice questions on Fractions\n\nFeatures:\n• Auto-grading\n• Instant results\n• Common misconception analysis\n• Student response visualization');
+            const topic = document.getElementById('quickQuizTopic').value || 'General Topic';
+            const count = Number(document.getElementById('quickQuizCount').value || 5);
+            const type = document.getElementById('quickQuizType').value || 'multiple';
+            const state = GameEdContentStore.read();
+            const trophies = state.trophies || [];
+            const trophyId = trophies[0]?.id || '';
+
+            const quiz = {
+                id: `teacher-quiz-${Date.now()}`,
+                title: `${topic} Quiz`,
+                subject: 'Teacher Created',
+                class: '5-9',
+                description: `Teacher created ${type} quiz on ${topic}`,
+                duration: 10,
+                questions: count,
+                xp: 100,
+                difficulty: 'custom',
+                icon: '📝',
+                color1: '#10b981',
+                color2: '#059669',
+                published: true,
+                trophyId,
+                mp3Url: '',
+                questionsList: [
+                    { question: `Sample question on ${topic}?`, options: ['A', 'B', 'C', 'D'], correct: 0, explanation: 'Teacher provided answer key.' }
+                ]
+            };
+
+            GameEdContentStore.addQuiz(quiz);
+            alert(`Quiz "${quiz.title}" created and published. ${trophyId ? 'Default trophy assigned.' : 'No trophy assigned yet.'}`);
             closeModal('quickQuizModal');
+            updateRecentAssessments();
+        }
+
+        function assignGradesToStudent() {
+            const users = JSON.parse(localStorage.getItem('gameEdUsers')) || [];
+            const students = users.filter(u => u.role === 'student');
+            const quizzes = GameEdContentStore.read().quizzes || [];
+            if (!students.length || !quizzes.length) {
+                alert('Need at least one student and one quiz.');
+                return;
+            }
+            const student = students[0];
+            const quiz = quizzes[0];
+            const marks = 85;
+            GameEdContentStore.assignGrade(student.id, quiz.id, marks, 100);
+            if (quiz.trophyId) {
+                GameEdContentStore.awardTrophy(student.id, quiz.trophyId);
+            }
+            alert(`Assigned ${marks}/100 for ${student.name} on ${quiz.title}. Leaderboard and XP updated.`);
+        }
+
+        function removeAnyQuiz() {
+            const quizzes = GameEdContentStore.read().quizzes || [];
+            if (!quizzes.length) {
+                alert('No quizzes found to remove.');
+                return;
+            }
+            GameEdContentStore.removeQuiz(quizzes[quizzes.length - 1].id);
+            alert('A quiz was removed successfully.');
         }
 
         function createExitTicket() {
+            assignGradesToStudent();
             alert('Exit Ticket Creator\n\nGenerate end-of-lesson questions:\n• What did you learn today?\n• What questions do you still have?\n• Rate your understanding (1-5)\n• One thing you found challenging');
         }
 
         function createPoll() {
+            removeAnyQuiz();
             alert('Class Poll Creator\n\nQuick polling questions:\n• Multiple choice\n• Rating scales\n• Word clouds\n• Open responses\n\nReal-time results displayed to class');
         }
 
