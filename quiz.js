@@ -233,9 +233,36 @@ class QuizSystem {
         this.user.totalXP = (this.user.totalXP || 0) + result.xpEarned;
         this.user.quizzes = this.userQuizzes;
 
+        const users = JSON.parse(localStorage.getItem('gameEdUsers')) || [];
+        const index = users.findIndex(u => String(u.id) === String(this.user.id));
+        if (index !== -1) {
+            users[index] = {
+                ...users[index],
+                xp: this.user.xp,
+                totalXP: this.user.totalXP,
+                quizzes: this.userQuizzes
+            };
+            localStorage.setItem('gameEdUsers', JSON.stringify(users));
+        }
+
         if (localStorage.getItem('gameEdUser')) {
             localStorage.setItem('gameEdUser', JSON.stringify(this.user));
         }
+
+        fetch('/api/quiz-attempt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: this.user.id,
+                result: {
+                    ...result,
+                    currentXP: this.user.xp,
+                    totalXP: this.user.totalXP
+                }
+            })
+        }).catch(() => {
+            // API unavailable; local persistence is still kept.
+        });
 
         this.currentQuiz.completed = true;
         return result;
