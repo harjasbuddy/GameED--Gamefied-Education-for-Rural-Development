@@ -1,8 +1,6 @@
 # 👨‍💻 Team Taskforce 141
   1. Tanish Jain
-  2. Siya Sharma
-  3. Harjas Singh Dhami
-  4. Utkarsh Walia
+  2. Harjas Singh Dhami
 
 
 # Problem Statement
