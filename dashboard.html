@@ -1492,12 +1492,14 @@
     </div>
 
     <script src="components/header.js"></script>
+    <script src="content-store.js"></script>
     <script src="quiz.js"></script>
 <script src="curriculum.js"></script>
 <script src="achievements-enhanced.js"></script>
     <script>
         // Initialize Feather icons
         feather.replace();
+        GameEdContentStore.seedIfNeeded();
         
         // Quiz System
         class QuizSystem {
@@ -1508,7 +1510,7 @@
             }
 
             loadQuizzes() {
-                return {
+                const fallback = {
                     'math-quiz-1': {
                         id: 'math-quiz-1',
                         title: 'Basic Arithmetic',
@@ -1646,6 +1648,16 @@
                         ]
                     }
                 };
+
+                const content = GameEdContentStore.read();
+                if (!content.quizzes.length) {
+                    return fallback;
+                }
+
+                return content.quizzes.reduce((acc, quiz) => {
+                    acc[quiz.id] = quiz;
+                    return acc;
+                }, {});
             }
 
             startQuiz(quizId) {
@@ -1728,6 +1740,11 @@
                     completedAt: new Date().toISOString()
                 };
 
+                if (this.currentQuiz.trophyId) {
+                    result.trophyId = this.currentQuiz.trophyId;
+                    GameEdContentStore.awardTrophy(this.user.id, this.currentQuiz.trophyId);
+                }
+
                 this.userQuizzes[this.currentQuiz.id] = result;
                 this.user.xp = (this.user.xp || 0) + result.xpEarned;
                 this.user.quizzes = this.userQuizzes;
@@ -1758,8 +1775,12 @@
 
             renderQuizCard(quizId) {
                 const quiz = this.quizzes[quizId];
+                if (!quiz || !quiz.published) {
+                    return '';
+                }
                 const completed = this.userQuizzes[quizId];
                 const completionRate = completed ? completed.percentage : 0;
+                const trophy = (GameEdContentStore.read().trophies || []).find(t => t.id === quiz.trophyId);
 
                 return `
                     <div class="quiz-card ${completed ? 'completed' : ''}" data-quiz="${quizId}">
@@ -1777,6 +1798,7 @@
                             </div>
                         </div>
                         <p class="quiz-desc">${quiz.description}</p>
+                        <div class="text-xs text-emerald-300 mb-2">Status: ${quiz.published ? 'Published' : 'Draft'} ${trophy ? `• Trophy: ${trophy.name}` : ''}</div>
                         <div class="quiz-footer">
                             <div class="quiz-stats">
                                 <span><i data-feather="clock"></i> ${quiz.duration}min</span>
@@ -1791,9 +1813,12 @@
                                     <span class="xp-earned">+${completed.xpEarned} XP</span>
                                 </div>
                             ` : `
+                                <div class="flex gap-2">
                                 <button class="start-quiz-btn" data-quiz="${quizId}">
                                     Start Quiz
                                 </button>
+                                ${quiz.mp3Url ? `<button class="start-quiz-btn play-quiz-audio-btn" data-audio="${quiz.mp3Url}" type="button">Play Audio</button>` : ''}
+                                </div>
                             `}
                         </div>
                     </div>
@@ -2509,6 +2534,7 @@
                 
                 this.updateXPDisplay();
                 this.updateQuizzes();
+                this.updateLeaderboardAndTrophies();
                 this.updateCurriculum();
                 this.updateGameBadges();
                 this.updateGames();
@@ -2562,9 +2588,53 @@
                             this.startQuiz(btn.dataset.quiz);
                         });
                     });
+
+                    document.querySelectorAll('.play-quiz-audio-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const player = new Audio(btn.dataset.audio);
+                            player.play();
+                        });
+                    });
                     
                     feather.replace();
                 }
+            }
+
+            updateLeaderboardAndTrophies() {
+                const state = GameEdContentStore.read();
+                const profileSection = document.getElementById('quiz-section');
+                if (!profileSection) return;
+
+                let leaderboard = document.getElementById('localLeaderboard');
+                if (!leaderboard) {
+                    leaderboard = document.createElement('div');
+                    leaderboard.id = 'localLeaderboard';
+                    leaderboard.className = 'glass-card p-4 rounded-xl mt-6';
+                    profileSection.appendChild(leaderboard);
+                }
+
+                leaderboard.innerHTML = `
+                    <h4 class="font-bold mb-3">🏅 Local Leaderboard</h4>
+                    ${(state.leaderboard || []).slice(0, 5).map((s, index) => `<div class="flex justify-between text-sm mb-2"><span>#${index + 1} ${s.name}</span><span>${s.highestGrade} marks • ${s.totalXP} XP</span></div>`).join('') || '<div class="text-slate-400 text-sm">No graded quizzes yet.</div>'}
+                `;
+
+                let gallery = document.getElementById('trophiesGallery');
+                if (!gallery) {
+                    gallery = document.createElement('div');
+                    gallery.id = 'trophiesGallery';
+                    gallery.className = 'glass-card p-4 rounded-xl mt-4';
+                    profileSection.appendChild(gallery);
+                }
+
+                const allTrophies = state.trophies || [];
+                const earned = this.user.earnedTrophies || [];
+                gallery.innerHTML = `
+                    <h4 class="font-bold mb-3">🏆 Trophies</h4>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    ${allTrophies.map(t => `<div class="p-2 rounded-lg ${earned.includes(t.id) ? 'bg-emerald-900/40' : 'bg-slate-800/40'} text-center"><img src="${t.imageUrl || ''}" alt="${t.name}" class="w-10 h-10 mx-auto mb-1 rounded-full object-cover" onerror="this.style.display='none'" /><div class="text-xs">${t.name}</div></div>`).join('') || '<div class="text-slate-400 text-sm col-span-full">No trophies created yet.</div>'}
+                    </div>
+                `;
             }
 
             updateCurriculum() {
